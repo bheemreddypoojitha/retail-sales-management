@@ -7,8 +7,6 @@ export const getSalesData = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-
-    // Use the new SQL Service
     const { data, totalRecords } = await getProcessedSalesData(req.query);
 
     const totalPages = Math.ceil(totalRecords / limit);
@@ -24,7 +22,7 @@ export const getSalesData = async (req, res) => {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
       },
-      filters: { applied: req.query }, // Simplified echo
+      filters: { applied: req.query },
     });
   } catch (error) {
     console.error("Error in getSalesData:", error);

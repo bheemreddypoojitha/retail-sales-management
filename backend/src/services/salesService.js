@@ -1,8 +1,6 @@
-import { getDb } from "../utils/db.js";
-
-// Combine Search, Filter, Sort, Paginate into ONE efficient SQL query
+import { getDatabase } from "../utils/database.js";
 export const getProcessedSalesData = async (params) => {
-  const db = await getDb();
+  const db = await getDatabase();
   const {
     search,
     page = 1,
@@ -25,7 +23,6 @@ export const getProcessedSalesData = async (params) => {
   let countQuery = "SELECT COUNT(*) as total FROM sales WHERE 1=1";
   const queryParams = [];
 
-  // --- 1. Search ---
   if (search) {
     const clause = ` AND (customer_name LIKE ? OR phone_number LIKE ?)`;
     query += clause;
@@ -33,7 +30,6 @@ export const getProcessedSalesData = async (params) => {
     queryParams.push(`%${search}%`, `%${search}%`);
   }
 
-  // --- 2. Filters ---
   const addFilter = (col, val) => {
     if (!val) return;
     if (val.includes(",")) {
@@ -56,7 +52,6 @@ export const getProcessedSalesData = async (params) => {
   addFilter("order_status", orderStatus);
   addFilter("delivery_type", deliveryType);
 
-  // Age Range
   if (ageMin) {
     query += ` AND age >= ?`;
     countQuery += ` AND age >= ?`;
@@ -68,7 +63,6 @@ export const getProcessedSalesData = async (params) => {
     queryParams.push(ageMax);
   }
 
-  // Date Range
   if (dateFrom) {
     query += ` AND date >= ?`;
     countQuery += ` AND date >= ?`;
@@ -80,7 +74,6 @@ export const getProcessedSalesData = async (params) => {
     queryParams.push(dateTo);
   }
 
-  // Tags (Partial match)
   if (tags) {
     const tagList = tags.split(",").map((t) => t.trim());
     const tagClauses = tagList.map(() => `tags LIKE ?`).join(" OR ");
@@ -89,7 +82,6 @@ export const getProcessedSalesData = async (params) => {
     tagList.forEach((t) => queryParams.push(`%${t}%`));
   }
 
-  // --- 3. Sorting ---
   if (sortBy) {
     switch (sortBy) {
       case "date-newest":
@@ -118,15 +110,12 @@ export const getProcessedSalesData = async (params) => {
     }
   }
 
-  // --- 4. Pagination ---
   const offset = (page - 1) * limit;
   query += ` LIMIT ? OFFSET ?`;
 
-  // Execute Queries
   const totalResult = await db.get(countQuery, queryParams);
   const rows = await db.all(query, [...queryParams, limit, offset]);
 
-  // Map DB columns back to CSV header format (so frontend doesn't break)
   const mappedData = rows.map((row) => ({
     "Transaction ID": row.transaction_id,
     Date: row.date,
@@ -163,7 +152,7 @@ export const getProcessedSalesData = async (params) => {
 };
 
 export const getFilterOptions = async () => {
-  const db = await getDb();
+  const db = await getDatabase();
   const getDistinct = async (col) =>
     (
       await db.all(
@@ -176,7 +165,7 @@ export const getFilterOptions = async () => {
     genders: await getDistinct("gender"),
     productCategories: await getDistinct("product_category"),
     paymentMethods: await getDistinct("payment_method"),
-    tags: await getDistinct("tags"), // Note: splitting tags might be needed if stored as comma-separated string
+    tags: await getDistinct("tags"),
     orderStatuses: await getDistinct("order_status"),
     deliveryTypes: await getDistinct("delivery_type"),
   };

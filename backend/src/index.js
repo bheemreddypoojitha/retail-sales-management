@@ -1,7 +1,8 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import salesRoutes from './routes/salesRoutes.js';
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import salesRoutes from "./routes/salesRoutes.js";
+import { initializeDatabase } from "./utils/database.js";
 
 dotenv.config();
 
@@ -12,33 +13,44 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/api/sales', salesRoutes);
+app.use("/api/sales", salesRoutes);
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'success',
-    message: 'Retail Sales API is running',
-    timestamp: new Date().toISOString()
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "success",
+    message: "Retail Sales API is running",
+    timestamp: new Date().toISOString(),
   });
 });
 
 app.use((req, res) => {
-  res.status(404).json({ 
-    status: 'error',
-    message: 'Route not found' 
+  res.status(404).json({
+    status: "error",
+    message: "Route not found",
   });
 });
 
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    status: 'error',
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  console.error("❌ Error:", err.stack);
+  res.status(500).json({
+    status: "error",
+    message: "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📊 API endpoint: http://localhost:${PORT}/api/sales`);
-});
+const startServer = async () => {
+  try {
+    await initializeDatabase();
+
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`📊 API endpoint: http://localhost:${PORT}/api/sales`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();

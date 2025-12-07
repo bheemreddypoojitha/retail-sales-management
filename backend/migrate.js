@@ -1,10 +1,9 @@
 import fs from "fs";
 import readline from "readline";
 import Papa from "papaparse";
-import { getDb } from "./src/utils/db.js";
+import { getDatabase } from "./src/utils/database.js";
 
 const CSV_FILE = "./src/data/sales_data.csv";
-// Reduced batch size to 500 to be extremely safe on 512MB RAM
 const BATCH_SIZE = 500;
 
 const parseDate = (dateStr) => {
@@ -67,10 +66,9 @@ const insertBatch = async (db, batch) => {
 };
 
 const migrate = async () => {
-  const db = await getDb();
+  const db = await getDatabase();
   console.log("📦 Setting up SQLite database...");
 
-  // 1. Create Table
   await db.exec(`
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,10 +81,8 @@ const migrate = async () => {
     )
   `);
 
-  // 2. Clear old data
   await db.exec("DELETE FROM sales");
 
-  // 3. Ultra-Low Memory Stream
   console.log("📖 Streaming CSV line-by-line (Ultra-Safe Mode)...");
 
   if (!fs.existsSync(CSV_FILE)) {
@@ -105,20 +101,14 @@ const migrate = async () => {
   let headers = null;
 
   for await (const line of rl) {
-    // skip empty lines
     if (!line.trim()) continue;
-
-    // Parse single line
     const result = Papa.parse(line, { header: false });
     const rowValues = result.data[0];
 
-    // Handle Header Row
     if (!headers) {
       headers = rowValues;
-      continue; // Skip inserting header
+      continue;
     }
-
-    // Map values to object based on headers
     const rowObject = {};
     headers.forEach((header, index) => {
       rowObject[header.trim()] = rowValues[index];
@@ -127,18 +117,14 @@ const migrate = async () => {
     batch.push(rowObject);
     count++;
 
-    // Insert when batch is full
     if (batch.length >= BATCH_SIZE) {
       await insertBatch(db, batch);
       if (count % 10000 === 0) console.log(`...processed ${count} records`);
-      batch = []; // Free memory immediately
-
-      // Small pause to let Garbage Collector breathe
+      batch = [];
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
 
-  // Insert remaining rows
   if (batch.length > 0) {
     await insertBatch(db, batch);
   }
