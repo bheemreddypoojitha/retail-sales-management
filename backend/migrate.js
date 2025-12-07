@@ -1,153 +1,152 @@
 import fs from "fs";
+import readline from "readline";
 import Papa from "papaparse";
 import { getDb } from "./src/utils/db.js";
 
 const CSV_FILE = "./src/data/sales_data.csv";
-const BATCH_SIZE = 5000; // Insert 5000 records at a time to save memory
+// Reduced batch size to 500 to be extremely safe on 512MB RAM
+const BATCH_SIZE = 500;
+
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  return dateStr;
+};
+
+const insertBatch = async (db, batch) => {
+  if (batch.length === 0) return;
+
+  await db.exec("BEGIN TRANSACTION");
+  const stmt = await db.prepare(`
+    INSERT INTO sales (
+      transaction_id, date, customer_id, customer_name, phone_number, gender, age, 
+      customer_region, customer_type, product_id, product_name, brand, product_category, 
+      tags, quantity, price_per_unit, discount_percentage, total_amount, final_amount, 
+      payment_method, order_status, delivery_type, store_id, store_location, salesperson_id, employee_name
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of batch) {
+    const safeFloat = (val) =>
+      parseFloat(String(val).replace(/[^0-9.-]+/g, "")) || 0;
+    const safeInt = (val) => parseInt(String(val).replace(/[^0-9]+/g, "")) || 0;
+
+    await stmt.run(
+      row["Transaction ID"],
+      parseDate(row["Date"]),
+      row["Customer ID"],
+      row["Customer Name"],
+      row["Phone Number"],
+      row["Gender"],
+      safeInt(row["Age"]),
+      row["Customer Region"],
+      row["Customer Type"],
+      row["Product ID"],
+      row["Product Name"],
+      row["Brand"],
+      row["Product Category"],
+      row["Tags"],
+      safeInt(row["Quantity"]),
+      safeFloat(row["Price per Unit"]),
+      safeFloat(row["Discount Percentage"]),
+      safeFloat(row["Total Amount"]),
+      safeFloat(row["Final Amount"]),
+      row["Payment Method"],
+      row["Order Status"],
+      row["Delivery Type"],
+      row["Store ID"],
+      row["Store Location"],
+      row["Salesperson ID"],
+      row["Employee Name"]
+    );
+  }
+
+  await stmt.finalize();
+  await db.exec("COMMIT");
+};
 
 const migrate = async () => {
   const db = await getDb();
   console.log("📦 Setting up SQLite database...");
 
-  // 1. Create Table (Matches your specific CSV structure)
+  // 1. Create Table
   await db.exec(`
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      transaction_id TEXT,
-      date TEXT,
-      customer_id TEXT,
-      customer_name TEXT,
-      phone_number TEXT,
-      gender TEXT,
-      age INTEGER,
-      customer_region TEXT,
-      customer_type TEXT,
-      product_id TEXT,
-      product_name TEXT,
-      brand TEXT,
-      product_category TEXT,
-      tags TEXT,
-      quantity INTEGER,
-      price_per_unit REAL,
-      discount_percentage REAL,
-      total_amount REAL,
-      final_amount REAL,
-      payment_method TEXT,
-      order_status TEXT,
-      delivery_type TEXT,
-      store_id TEXT,
-      store_location TEXT,
-      salesperson_id TEXT,
-      employee_name TEXT
+      transaction_id TEXT, date TEXT, customer_id TEXT, customer_name TEXT, phone_number TEXT,
+      gender TEXT, age INTEGER, customer_region TEXT, customer_type TEXT,
+      product_id TEXT, product_name TEXT, brand TEXT, product_category TEXT, tags TEXT,
+      quantity INTEGER, price_per_unit REAL, discount_percentage REAL, total_amount REAL, final_amount REAL,
+      payment_method TEXT, order_status TEXT, delivery_type TEXT, store_id TEXT, store_location TEXT,
+      salesperson_id TEXT, employee_name TEXT
     )
   `);
 
   // 2. Clear old data
   await db.exec("DELETE FROM sales");
 
-  // 3. Helper function to insert a batch of rows
-  const insertBatch = async (rows) => {
-    await db.exec("BEGIN TRANSACTION");
-    const stmt = await db.prepare(`
-      INSERT INTO sales (
-        transaction_id, date, customer_id, customer_name, phone_number, gender, age, 
-        customer_region, customer_type, product_id, product_name, brand, product_category, 
-        tags, quantity, price_per_unit, discount_percentage, total_amount, final_amount, 
-        payment_method, order_status, delivery_type, store_id, store_location, salesperson_id, employee_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const row of rows) {
-      const safeFloat = (val) =>
-        parseFloat(String(val).replace(/[^0-9.-]+/g, "")) || 0;
-      const safeInt = (val) =>
-        parseInt(String(val).replace(/[^0-9]+/g, "")) || 0;
-
-      await stmt.run(
-        row["Transaction ID"],
-        row["Date"],
-        row["Customer ID"],
-        row["Customer Name"],
-        row["Phone Number"],
-        row["Gender"],
-        safeInt(row["Age"]),
-        row["Customer Region"],
-        row["Customer Type"],
-        row["Product ID"],
-        row["Product Name"],
-        row["Brand"],
-        row["Product Category"],
-        row["Tags"],
-        safeInt(row["Quantity"]),
-        safeFloat(row["Price per Unit"]),
-        safeFloat(row["Discount Percentage"]),
-        safeFloat(row["Total Amount"]),
-        safeFloat(row["Final Amount"]),
-        row["Payment Method"],
-        row["Order Status"],
-        row["Delivery Type"],
-        row["Store ID"],
-        row["Store Location"],
-        row["Salesperson ID"],
-        row["Employee Name"]
-      );
-    }
-
-    await stmt.finalize();
-    await db.exec("COMMIT");
-  };
-
-  // 4. Stream the CSV
-  console.log("📖 Streaming CSV file (Memory Safe Mode)...");
+  // 3. Ultra-Low Memory Stream
+  console.log("📖 Streaming CSV line-by-line (Ultra-Safe Mode)...");
 
   if (!fs.existsSync(CSV_FILE)) {
     console.error(`❌ File not found: ${CSV_FILE}`);
     process.exit(1);
   }
 
-  const fileStream = fs.createReadStream(CSV_FILE, "utf8");
+  const fileStream = fs.createReadStream(CSV_FILE);
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
   let batch = [];
   let count = 0;
+  let headers = null;
 
-  return new Promise((resolve, reject) => {
-    Papa.parse(fileStream, {
-      header: true,
-      skipEmptyLines: true,
-      step: async (results, parser) => {
-        // Pause parser to write to DB
-        parser.pause();
+  for await (const line of rl) {
+    // skip empty lines
+    if (!line.trim()) continue;
 
-        batch.push(results.data);
-        count++;
+    // Parse single line
+    const result = Papa.parse(line, { header: false });
+    const rowValues = result.data[0];
 
-        if (batch.length >= BATCH_SIZE) {
-          try {
-            await insertBatch(batch);
-            if (count % 50000 === 0)
-              console.log(`...processed ${count} records`);
-            batch = []; // Clear memory
-          } catch (err) {
-            console.error("Batch insert failed:", err);
-            process.exit(1);
-          }
-        }
+    // Handle Header Row
+    if (!headers) {
+      headers = rowValues;
+      continue; // Skip inserting header
+    }
 
-        // Resume parser
-        parser.resume();
-      },
-      complete: async () => {
-        // Insert any remaining rows
-        if (batch.length > 0) {
-          await insertBatch(batch);
-        }
-        console.log(`✅ Database ready! Successfully loaded ${count} records.`);
-        resolve();
-      },
-      error: (err) => {
-        reject(err);
-      },
+    // Map values to object based on headers
+    const rowObject = {};
+    headers.forEach((header, index) => {
+      rowObject[header.trim()] = rowValues[index];
     });
-  });
+
+    batch.push(rowObject);
+    count++;
+
+    // Insert when batch is full
+    if (batch.length >= BATCH_SIZE) {
+      await insertBatch(db, batch);
+      if (count % 10000 === 0) console.log(`...processed ${count} records`);
+      batch = []; // Free memory immediately
+
+      // Small pause to let Garbage Collector breathe
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  // Insert remaining rows
+  if (batch.length > 0) {
+    await insertBatch(db, batch);
+  }
+
+  console.log(`✅ Database ready! Successfully loaded ${count} records.`);
 };
 
-migrate().catch(console.error);
+migrate().catch((err) => {
+  console.error("Migration failed:", err);
+  process.exit(1);
+});
