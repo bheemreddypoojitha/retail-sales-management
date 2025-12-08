@@ -1,182 +1,179 @@
-import {
-  getDatabase,
-  initializeDatabase,
-  getRecordCount,
-  closeDatabase,
-} from "../utils/database.js";
+import { connectToDatabase, closeConnection } from "../utils/mongoClient.js";
 import Papa from "papaparse";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import readline from "readline";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const uploadCSVToDatabase = async () => {
+const COLLECTION_NAME = "sales";
+const BATCH_SIZE = 1000;
+
+const uploadCSV = async () => {
   try {
-    console.log("🚀 Starting CSV upload to SQLite...");
+    console.log("🚀 Starting CSV upload to MongoDB...");
 
-    // Initialize database
-    await initializeDatabase();
-    const db = await getDatabase();
+    const db = await connectToDatabase();
+    const collection = db.collection(COLLECTION_NAME);
 
-    // Check if data already exists
-    const existingCount = await getRecordCount();
-    if (existingCount > 0) {
-      console.log(`⚠️ Database already has ${existingCount} records`);
-
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      return new Promise((resolve) => {
-        rl.question(
-          "Delete existing data and re-upload? (yes/no): ",
-          async (answer) => {
-            rl.close();
-            if (answer.toLowerCase() !== "yes") {
-              console.log("❌ Upload cancelled");
-              await closeDatabase();
-              process.exit(0);
-            }
-
-            console.log("🗑️ Deleting existing data...");
-            await new Promise((res, rej) => {
-              db.run("DELETE FROM sales", (err) => {
-                if (err) rej(err);
-                else res();
-              });
-            });
-            console.log("✅ Existing data deleted");
-
-            await performUpload(db);
-            resolve();
-          }
-        );
-      });
-    } else {
-      await performUpload(db);
+    const count = await collection.countDocuments();
+    if (count > 0) {
+      console.log(`⚠️ Collection has ${count} records. Deleting...`);
+      await collection.deleteMany({});
     }
+
+    const csvPath = path.join(__dirname, "../../src/data/sales_data.csv");
+
+    const fileContent = fs.readFileSync(csvPath, "utf8");
+    const totalLines = fileContent.split("\n").length;
+    console.log(`📄 CSV file has ${totalLines} total lines (including header)`);
+
+    const fileStream = fs.createReadStream(csvPath);
+
+    console.log("📊 Parsing CSV in batches...");
+
+    let batch = [];
+    let totalRecords = 0;
+    let batchNumber = 0;
+    let errorCount = 0;
+    let skippedRows = 0;
+
+    Papa.parse(fileStream, {
+      header: true,
+      skipEmptyLines: true,
+      step: async (result, parser) => {
+        if (result.errors && result.errors.length > 0) {
+          errorCount++;
+          if (errorCount <= 5) {
+            console.warn(
+              `⚠️ Parse error at row ${totalRecords + skippedRows}:`,
+              result.errors[0].message
+            );
+          }
+          return;
+        }
+
+        const record = result.data;
+        if (!record["Transaction ID"] || !record["Date"]) {
+          skippedRows++;
+          if (skippedRows <= 5) {
+            console.warn(
+              `⚠️ Skipping invalid row ${
+                totalRecords + skippedRows
+              }: Missing required fields`
+            );
+          }
+          return;
+        }
+
+        const document = {
+          transaction_id: record["Transaction ID"],
+          date: record["Date"],
+          customer_id: record["Customer ID"],
+          customer_name: record["Customer Name"],
+          phone_number: record["Phone Number"],
+          gender: record["Gender"],
+          age: parseInt(record["Age"]) || 0,
+          customer_region: record["Customer Region"],
+          customer_type: record["Customer Type"],
+          product_id: record["Product ID"],
+          product_name: record["Product Name"],
+          brand: record["Brand"],
+          product_category: record["Product Category"],
+          tags: record["Tags"],
+          quantity: parseInt(record["Quantity"]) || 0,
+          price_per_unit: parseFloat(record["Price per Unit"]) || 0,
+          discount_percentage: parseFloat(record["Discount Percentage"]) || 0,
+          total_amount: parseFloat(record["Total Amount"]) || 0,
+          final_amount: parseFloat(record["Final Amount"]) || 0,
+          payment_method: record["Payment Method"],
+          order_status: record["Order Status"],
+          delivery_type: record["Delivery Type"],
+          store_id: record["Store ID"],
+          store_location: record["Store Location"],
+          salesperson_id: record["Salesperson ID"],
+          employee_name: record["Employee Name"],
+        };
+
+        batch.push(document);
+        if (batch.length >= BATCH_SIZE) {
+          parser.pause();
+          batchNumber++;
+
+          try {
+            const result = await collection.insertMany(batch);
+            totalRecords += result.insertedCount;
+            console.log(
+              `✅ Batch ${batchNumber}: ${result.insertedCount} records (Total: ${totalRecords})`
+            );
+          } catch (insertError) {
+            console.error(
+              `❌ Error inserting batch ${batchNumber}:`,
+              insertError.message
+            );
+          }
+
+          batch = [];
+          parser.resume();
+        }
+      },
+      complete: async () => {
+        if (batch.length > 0) {
+          batchNumber++;
+          try {
+            const result = await collection.insertMany(batch);
+            totalRecords += result.insertedCount;
+            console.log(
+              `✅ Final batch ${batchNumber}: ${result.insertedCount} records`
+            );
+          } catch (insertError) {
+            console.error(
+              `❌ Error inserting final batch:`,
+              insertError.message
+            );
+          }
+        }
+
+        console.log("\n📊 Upload Summary:");
+        console.log(`✅ Total records uploaded: ${totalRecords}`);
+        console.log(`⚠️ Rows skipped: ${skippedRows}`);
+        console.log(`❌ Parse errors: ${errorCount}`);
+        console.log(
+          `📄 Expected records: ${totalLines - 1} (file lines - header)`
+        );
+
+        if (totalRecords < totalLines - 1) {
+          console.log(
+            `\n⚠️ WARNING: ${totalLines - 1 - totalRecords} records missing!`
+          );
+        }
+
+        console.log("\n🔍 Creating indexes...");
+        await collection.createIndex({ customer_name: 1 });
+        await collection.createIndex({ phone_number: 1 });
+        await collection.createIndex({ date: -1 });
+        await collection.createIndex({ customer_region: 1 });
+        await collection.createIndex({ product_category: 1 });
+
+        console.log("✅ Upload complete!");
+
+        await closeConnection();
+        process.exit(0);
+      },
+      error: (error) => {
+        console.error("❌ CSV parsing error:", error);
+        throw error;
+      },
+    });
   } catch (error) {
     console.error("❌ Upload failed:", error);
-    await closeDatabase();
+    await closeConnection();
     process.exit(1);
   }
 };
 
-const performUpload = async (db) => {
-  // Read CSV file
-  console.log("📂 Reading CSV file...");
-  const csvPath = path.join(__dirname, "../../src/data/sales_data.csv");
-
-  if (!fs.existsSync(csvPath)) {
-    throw new Error(`CSV file not found at: ${csvPath}`);
-  }
-
-  const fileContent = fs.readFileSync(csvPath, "utf8");
-
-  // Parse CSV
-  console.log("📊 Parsing CSV...");
-  Papa.parse(fileContent, {
-    header: true,
-    skipEmptyLines: true,
-    complete: async (results) => {
-      console.log(`✅ Parsed ${results.data.length} records`);
-
-      // Prepare insert statement
-      const insertSql = `
-        INSERT INTO sales (
-          transaction_id, date, customer_id, customer_name, phone_number,
-          gender, age, customer_region, customer_type, product_id,
-          product_name, brand, product_category, tags, quantity,
-          price_per_unit, discount_percentage, total_amount, final_amount,
-          payment_method, order_status, delivery_type, store_id,
-          store_location, salesperson_id, employee_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-
-      console.log("⬆️ Uploading to database...");
-
-      // Use transaction for better performance
-      await new Promise((resolve, reject) => {
-        db.serialize(() => {
-          db.run("BEGIN TRANSACTION");
-
-          const stmt = db.prepare(insertSql);
-
-          let count = 0;
-          for (const record of results.data) {
-            stmt.run(
-              [
-                record["Transaction ID"],
-                record["Date"],
-                record["Customer ID"],
-                record["Customer Name"],
-                record["Phone Number"],
-                record["Gender"],
-                parseInt(record["Age"]) || 0,
-                record["Customer Region"],
-                record["Customer Type"],
-                record["Product ID"],
-                record["Product Name"],
-                record["Brand"],
-                record["Product Category"],
-                record["Tags"],
-                parseInt(record["Quantity"]) || 0,
-                parseFloat(record["Price per Unit"]) || 0,
-                parseFloat(record["Discount Percentage"]) || 0,
-                parseFloat(record["Total Amount"]) || 0,
-                parseFloat(record["Final Amount"]) || 0,
-                record["Payment Method"],
-                record["Order Status"],
-                record["Delivery Type"],
-                record["Store ID"],
-                record["Store Location"],
-                record["Salesperson ID"],
-                record["Employee Name"],
-              ],
-              (err) => {
-                if (err) {
-                  console.error("Error inserting record:", err);
-                }
-              }
-            );
-
-            count++;
-            if (count % 100 === 0) {
-              console.log(
-                `   Uploaded ${count}/${results.data.length} records...`
-              );
-            }
-          }
-
-          stmt.finalize();
-
-          db.run("COMMIT", async (err) => {
-            if (err) {
-              console.error("❌ Error committing transaction:", err);
-              return reject(err);
-            }
-
-            const finalCount = await getRecordCount();
-            console.log("✅ Upload complete!");
-            console.log(`📊 Total records in database: ${finalCount}`);
-
-            await closeDatabase();
-            resolve();
-            process.exit(0);
-          });
-        });
-      });
-    },
-    error: (error) => {
-      console.error("❌ CSV parsing error:", error);
-      process.exit(1);
-    },
-  });
-};
-
-// Run the upload
-uploadCSVToDatabase();
+uploadCSV();

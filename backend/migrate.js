@@ -67,7 +67,7 @@ const insertBatch = async (db, batch) => {
 
 const migrate = async () => {
   const db = await getDatabase();
-  console.log("📦 Setting up SQLite database...");
+  console.log("Setting up SQLite database...");
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS sales (
@@ -83,7 +83,7 @@ const migrate = async () => {
 
   await db.exec("DELETE FROM sales");
 
-  console.log("📖 Streaming CSV line-by-line (Ultra-Safe Mode)...");
+  console.log("Streaming CSV line-by-line (Ultra-Safe Mode)...");
 
   if (!fs.existsSync(CSV_FILE)) {
     console.error(`❌ File not found: ${CSV_FILE}`);
@@ -129,7 +129,7 @@ const migrate = async () => {
     await insertBatch(db, batch);
   }
 
-  console.log(`✅ Database ready! Successfully loaded ${count} records.`);
+  console.log(`Database ready! Successfully loaded ${count} records.`);
 };
 
 migrate().catch((err) => {

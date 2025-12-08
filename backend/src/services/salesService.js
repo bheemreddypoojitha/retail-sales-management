@@ -1,6 +1,6 @@
-import { getDatabase } from "../utils/database.js";
+import pool from "../utils/db.js";
+
 export const getProcessedSalesData = async (params) => {
-  const db = await getDatabase();
   const {
     search,
     page = 1,
@@ -19,28 +19,35 @@ export const getProcessedSalesData = async (params) => {
     dateTo,
   } = params;
 
-  let query = "SELECT * FROM sales WHERE 1=1";
-  let countQuery = "SELECT COUNT(*) as total FROM sales WHERE 1=1";
+  let queryText = "SELECT * FROM sales WHERE 1=1";
+  let countQueryText = "SELECT COUNT(*) as total FROM sales WHERE 1=1";
   const queryParams = [];
-
+  let paramIndex = 1;
+  const nextParam = () => `$${paramIndex++}`;
   if (search) {
-    const clause = ` AND (customer_name LIKE ? OR phone_number LIKE ?)`;
-    query += clause;
-    countQuery += clause;
-    queryParams.push(`%${search}%`, `%${search}%`);
+    const cleanSearch = search.trim();
+    const searchPattern = `%${cleanSearch}%`;
+
+    const clause = ` AND (customer_name ILIKE ${nextParam()} OR phone_number ILIKE ${nextParam()})`;
+    queryText += clause;
+    countQueryText += clause;
+    queryParams.push(searchPattern, searchPattern);
   }
 
   const addFilter = (col, val) => {
     if (!val) return;
     if (val.includes(",")) {
       const opts = val.split(",").map((s) => s.trim());
-      const placeholders = opts.map(() => "?").join(",");
-      query += ` AND ${col} IN (${placeholders})`;
-      countQuery += ` AND ${col} IN (${placeholders})`;
+      const placeholders = opts.map(() => nextParam()).join(",");
+
+      const clause = ` AND ${col} IN (${placeholders})`;
+      queryText += clause;
+      countQueryText += clause;
       queryParams.push(...opts);
     } else {
-      query += ` AND ${col} = ?`;
-      countQuery += ` AND ${col} = ?`;
+      const clause = ` AND ${col} = ${nextParam()}`;
+      queryText += clause;
+      countQueryText += clause;
       queryParams.push(val.trim());
     }
   };
@@ -53,112 +60,132 @@ export const getProcessedSalesData = async (params) => {
   addFilter("delivery_type", deliveryType);
 
   if (ageMin) {
-    query += ` AND age >= ?`;
-    countQuery += ` AND age >= ?`;
+    const p = nextParam();
+    queryText += ` AND age >= ${p}`;
+    countQueryText += ` AND age >= ${p}`;
     queryParams.push(ageMin);
   }
   if (ageMax) {
-    query += ` AND age <= ?`;
-    countQuery += ` AND age <= ?`;
+    const p = nextParam();
+    queryText += ` AND age <= ${p}`;
+    countQueryText += ` AND age <= ${p}`;
     queryParams.push(ageMax);
   }
 
   if (dateFrom) {
-    query += ` AND date >= ?`;
-    countQuery += ` AND date >= ?`;
+    const p = nextParam();
+    queryText += ` AND date >= ${p}`;
+    countQueryText += ` AND date >= ${p}`;
     queryParams.push(dateFrom);
   }
   if (dateTo) {
-    query += ` AND date <= ?`;
-    countQuery += ` AND date <= ?`;
+    const p = nextParam();
+    queryText += ` AND date <= ${p}`;
+    countQueryText += ` AND date <= ${p}`;
     queryParams.push(dateTo);
   }
 
   if (tags) {
     const tagList = tags.split(",").map((t) => t.trim());
-    const tagClauses = tagList.map(() => `tags LIKE ?`).join(" OR ");
-    query += ` AND (${tagClauses})`;
-    countQuery += ` AND (${tagClauses})`;
+    const tagClauses = tagList
+      .map(() => `tags ILIKE ${nextParam()}`)
+      .join(" OR ");
+
+    queryText += ` AND (${tagClauses})`;
+    countQueryText += ` AND (${tagClauses})`;
     tagList.forEach((t) => queryParams.push(`%${t}%`));
   }
 
   if (sortBy) {
     switch (sortBy) {
       case "date-newest":
-        query += " ORDER BY date DESC";
+        queryText += " ORDER BY date DESC";
         break;
       case "date-oldest":
-        query += " ORDER BY date ASC";
+        queryText += " ORDER BY date ASC";
         break;
       case "quantity-high":
-        query += " ORDER BY quantity DESC";
+        queryText += " ORDER BY quantity DESC";
         break;
       case "quantity-low":
-        query += " ORDER BY quantity ASC";
+        queryText += " ORDER BY quantity ASC";
         break;
       case "amount-high":
-        query += " ORDER BY final_amount DESC";
+        queryText += " ORDER BY final_amount DESC";
         break;
       case "customer-az":
-        query += " ORDER BY customer_name ASC";
+        queryText += " ORDER BY customer_name ASC";
         break;
       case "customer-za":
-        query += " ORDER BY customer_name DESC";
+        queryText += " ORDER BY customer_name DESC";
         break;
       default:
-        query += " ORDER BY id DESC";
+        queryText += " ORDER BY id DESC";
     }
+  } else {
+    queryText += " ORDER BY id DESC";
   }
 
   const offset = (page - 1) * limit;
-  query += ` LIMIT ? OFFSET ?`;
+  const limitParam = nextParam();
+  const offsetParam = nextParam();
 
-  const totalResult = await db.get(countQuery, queryParams);
-  const rows = await db.all(query, [...queryParams, limit, offset]);
+  queryText += ` LIMIT ${limitParam} OFFSET ${offsetParam}`;
 
-  const mappedData = rows.map((row) => ({
-    "Transaction ID": row.transaction_id,
-    Date: row.date,
-    "Customer ID": row.customer_id,
-    "Customer Name": row.customer_name,
-    "Phone Number": row.phone_number,
-    Gender: row.gender,
-    Age: row.age,
-    "Customer Region": row.customer_region,
-    "Customer Type": row.customer_type,
-    "Product ID": row.product_id,
-    "Product Name": row.product_name,
-    Brand: row.brand,
-    "Product Category": row.product_category,
-    Tags: row.tags,
-    Quantity: row.quantity,
-    "Price per Unit": row.price_per_unit,
-    "Discount Percentage": row.discount_percentage,
-    "Total Amount": row.total_amount,
-    "Final Amount": row.final_amount,
-    "Payment Method": row.payment_method,
-    "Order Status": row.order_status,
-    "Delivery Type": row.delivery_type,
-    "Store ID": row.store_id,
-    "Store Location": row.store_location,
-    "Salesperson ID": row.salesperson_id,
-    "Employee Name": row.employee_name,
-  }));
+  try {
+    const totalResult = await pool.query(countQueryText, queryParams);
+    const rowsResult = await pool.query(queryText, [
+      ...queryParams,
+      limit,
+      offset,
+    ]);
 
-  return {
-    data: mappedData,
-    totalRecords: totalResult.total,
-  };
+    const mappedData = rowsResult.rows.map((row) => ({
+      "Transaction ID": row.transaction_id,
+      Date: row.date,
+      "Customer ID": row.customer_id,
+      "Customer Name": row.customer_name,
+      "Phone Number": row.phone_number,
+      Gender: row.gender,
+      Age: row.age,
+      "Customer Region": row.customer_region,
+      "Customer Type": row.customer_type,
+      "Product ID": row.product_id,
+      "Product Name": row.product_name,
+      Brand: row.brand,
+      "Product Category": row.product_category,
+      Tags: row.tags,
+      Quantity: row.quantity,
+      "Price per Unit": row.price_per_unit,
+      "Discount Percentage": row.discount_percentage,
+      "Total Amount": row.total_amount,
+      "Final Amount": row.final_amount,
+      "Payment Method": row.payment_method,
+      "Order Status": row.order_status,
+      "Delivery Type": row.delivery_type,
+      "Store ID": row.store_id,
+      "Store Location": row.store_location,
+      "Salesperson ID": row.salesperson_id,
+      "Employee Name": row.employee_name,
+    }));
+
+    return {
+      data: mappedData,
+      totalRecords: parseInt(totalResult.rows[0].total || 0),
+    };
+  } catch (err) {
+    console.error("SQL Error in salesService:", err.message);
+    throw err;
+  }
 };
 
 export const getFilterOptions = async () => {
-  const db = await getDatabase();
-  const getDistinct = async (col) =>
-    (
-      await db.all(
-        `SELECT DISTINCT ${col} as val FROM sales WHERE ${col} IS NOT NULL ORDER BY ${col} ASC`
-      )
-    ).map((r) => r.val);
+  const getDistinct = async (col) => {
+    const result = await pool.query(
+      `SELECT DISTINCT ${col} as val FROM sales WHERE ${col} IS NOT NULL ORDER BY ${col} ASC`
+    );
+    return result.rows.map((r) => r.val);
+  };
 
   return {
     customerRegions: await getDistinct("customer_region"),

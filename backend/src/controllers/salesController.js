@@ -8,9 +8,7 @@ export const getSalesData = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const { data, totalRecords } = await getProcessedSalesData(req.query);
-
     const totalPages = Math.ceil(totalRecords / limit);
-
     res.status(200).json({
       success: true,
       data,
