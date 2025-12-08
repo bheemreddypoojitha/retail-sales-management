@@ -1,149 +1,182 @@
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
+import {
+  getDatabase,
+  initializeDatabase,
+  getRecordCount,
+  closeDatabase,
+} from "../utils/database.js";
+import Papa from "papaparse";
 import fs from "fs";
-import csvParser from "csv-parser";
 import path from "path";
 import { fileURLToPath } from "url";
+import readline from "readline";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BATCH_SIZE = 10000;
+const uploadCSVToDatabase = async () => {
+  try {
+    console.log("🚀 Starting CSV upload to SQLite...");
 
-async function uploadCSV() {
-  console.log("🚀 Starting FAST CSV upload to SQLite...");
+    // Initialize database
+    await initializeDatabase();
+    const db = await getDatabase();
 
-  const db = await open({
-    filename: path.join(__dirname, "../data/sales.db"),
-    driver: sqlite3.Database,
-  });
+    // Check if data already exists
+    const existingCount = await getRecordCount();
+    if (existingCount > 0) {
+      console.log(`⚠️ Database already has ${existingCount} records`);
 
-  await db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA synchronous = OFF;
-    PRAGMA temp_store = MEMORY;
-    PRAGMA mmap_size = 30000000000;
-  `);
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS sales (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      transaction_id TEXT,
-      date TEXT,
-      customer_id TEXT,
-      customer_name TEXT,
-      phone_number TEXT,
-      gender TEXT,
-      age INTEGER,
-      customer_region TEXT,
-      customer_type TEXT,
-      product_id TEXT,
-      product_name TEXT,
-      brand TEXT,
-      product_category TEXT,
-      tags TEXT,
-      quantity INTEGER,
-      price_per_unit REAL,
-      discount_percentage REAL,
-      total_amount REAL,
-      final_amount REAL,
-      payment_method TEXT,
-      order_status TEXT,
-      delivery_type TEXT,
-      store_id TEXT,
-      store_location TEXT,
-      salesperson_id TEXT,
-      employee_name TEXT
-    )
-  `);
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
 
+      return new Promise((resolve) => {
+        rl.question(
+          "Delete existing data and re-upload? (yes/no): ",
+          async (answer) => {
+            rl.close();
+            if (answer.toLowerCase() !== "yes") {
+              console.log("❌ Upload cancelled");
+              await closeDatabase();
+              process.exit(0);
+            }
+
+            console.log("🗑️ Deleting existing data...");
+            await new Promise((res, rej) => {
+              db.run("DELETE FROM sales", (err) => {
+                if (err) rej(err);
+                else res();
+              });
+            });
+            console.log("✅ Existing data deleted");
+
+            await performUpload(db);
+            resolve();
+          }
+        );
+      });
+    } else {
+      await performUpload(db);
+    }
+  } catch (error) {
+    console.error("❌ Upload failed:", error);
+    await closeDatabase();
+    process.exit(1);
+  }
+};
+
+const performUpload = async (db) => {
+  // Read CSV file
+  console.log("📂 Reading CSV file...");
   const csvPath = path.join(__dirname, "../../src/data/sales_data.csv");
 
   if (!fs.existsSync(csvPath)) {
-    console.error("❌ CSV file not found:", csvPath);
-    process.exit(1);
+    throw new Error(`CSV file not found at: ${csvPath}`);
   }
 
-  console.log("📂 Reading CSV...");
-  const stream = fs.createReadStream(csvPath).pipe(csvParser());
+  const fileContent = fs.readFileSync(csvPath, "utf8");
 
-  let buffer = [];
-  let totalInserted = 0;
+  // Parse CSV
+  console.log("📊 Parsing CSV...");
+  Papa.parse(fileContent, {
+    header: true,
+    skipEmptyLines: true,
+    complete: async (results) => {
+      console.log(`✅ Parsed ${results.data.length} records`);
 
-  const insertBatch = async () => {
-    if (buffer.length === 0) return;
+      // Prepare insert statement
+      const insertSql = `
+        INSERT INTO sales (
+          transaction_id, date, customer_id, customer_name, phone_number,
+          gender, age, customer_region, customer_type, product_id,
+          product_name, brand, product_category, tags, quantity,
+          price_per_unit, discount_percentage, total_amount, final_amount,
+          payment_method, order_status, delivery_type, store_id,
+          store_location, salesperson_id, employee_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
 
-    await db.exec("BEGIN TRANSACTION;");
+      console.log("⬆️ Uploading to database...");
 
-    const stmt = await db.prepare(`
-      INSERT INTO sales (
-        transaction_id, date, customer_id, customer_name, phone_number,
-        gender, age, customer_region, customer_type, product_id,
-        product_name, brand, product_category, tags, quantity,
-        price_per_unit, discount_percentage, total_amount, final_amount,
-        payment_method, order_status, delivery_type, store_id,
-        store_location, salesperson_id, employee_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+      // Use transaction for better performance
+      await new Promise((resolve, reject) => {
+        db.serialize(() => {
+          db.run("BEGIN TRANSACTION");
 
-    for (let row of buffer) {
-      await stmt.run(row);
-    }
+          const stmt = db.prepare(insertSql);
 
-    await stmt.finalize();
-    await db.exec("COMMIT;");
+          let count = 0;
+          for (const record of results.data) {
+            stmt.run(
+              [
+                record["Transaction ID"],
+                record["Date"],
+                record["Customer ID"],
+                record["Customer Name"],
+                record["Phone Number"],
+                record["Gender"],
+                parseInt(record["Age"]) || 0,
+                record["Customer Region"],
+                record["Customer Type"],
+                record["Product ID"],
+                record["Product Name"],
+                record["Brand"],
+                record["Product Category"],
+                record["Tags"],
+                parseInt(record["Quantity"]) || 0,
+                parseFloat(record["Price per Unit"]) || 0,
+                parseFloat(record["Discount Percentage"]) || 0,
+                parseFloat(record["Total Amount"]) || 0,
+                parseFloat(record["Final Amount"]) || 0,
+                record["Payment Method"],
+                record["Order Status"],
+                record["Delivery Type"],
+                record["Store ID"],
+                record["Store Location"],
+                record["Salesperson ID"],
+                record["Employee Name"],
+              ],
+              (err) => {
+                if (err) {
+                  console.error("Error inserting record:", err);
+                }
+              }
+            );
 
-    totalInserted += buffer.length;
-    console.log(`📊 Inserted: ${totalInserted} rows...`);
+            count++;
+            if (count % 100 === 0) {
+              console.log(
+                `   Uploaded ${count}/${results.data.length} records...`
+              );
+            }
+          }
 
-    buffer = [];
-  };
+          stmt.finalize();
 
-  stream.on("data", (row) => {
-    buffer.push([
-      row["Transaction ID"],
-      row["Date"],
-      row["Customer ID"],
-      row["Customer Name"],
-      row["Phone Number"],
-      row["Gender"],
-      parseInt(row["Age"]) || 0,
-      row["Customer Region"],
-      row["Customer Type"],
-      row["Product ID"],
-      row["Product Name"],
-      row["Brand"],
-      row["Product Category"],
-      row["Tags"],
-      parseInt(row["Quantity"]) || 0,
-      parseFloat(row["Price per Unit"]) || 0,
-      parseFloat(row["Discount Percentage"]) || 0,
-      parseFloat(row["Total Amount"]) || 0,
-      parseFloat(row["Final Amount"]) || 0,
-      row["Payment Method"],
-      row["Order Status"],
-      row["Delivery Type"],
-      row["Store ID"],
-      row["Store Location"],
-      row["Salesperson ID"],
-      row["Employee Name"],
-    ]);
+          db.run("COMMIT", async (err) => {
+            if (err) {
+              console.error("❌ Error committing transaction:", err);
+              return reject(err);
+            }
 
-    if (buffer.length >= BATCH_SIZE) {
-      stream.pause();
-      insertBatch().then(() => stream.resume());
-    }
+            const finalCount = await getRecordCount();
+            console.log("✅ Upload complete!");
+            console.log(`📊 Total records in database: ${finalCount}`);
+
+            await closeDatabase();
+            resolve();
+            process.exit(0);
+          });
+        });
+      });
+    },
+    error: (error) => {
+      console.error("❌ CSV parsing error:", error);
+      process.exit(1);
+    },
   });
+};
 
-  stream.on("end", async () => {
-    await insertBatch();
-    console.log(`🎉 Upload complete! Total rows inserted: ${totalInserted}`);
-    process.exit(0);
-  });
-
-  stream.on("error", (err) => {
-    console.error("❌ CSV error:", err);
-    process.exit(1);
-  });
-}
-
-uploadCSV();
+// Run the upload
+uploadCSVToDatabase();

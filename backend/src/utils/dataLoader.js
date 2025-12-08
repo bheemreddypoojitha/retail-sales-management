@@ -1,114 +1,139 @@
-import { getDatabase, initializeDatabase } from "./database.js";
+import { getDatabase } from "./database.js";
 
+/**
+ * Load sales data from SQLite
+ */
 export const loadSalesData = async () => {
   try {
     const db = await getDatabase();
-    const result = db.exec("SELECT * FROM sales");
 
-    if (!result || result.length === 0) {
-      console.log("⚠️ No data found in database");
-      return [];
-    }
+    return new Promise((resolve, reject) => {
+      db.all("SELECT * FROM sales", (err, rows) => {
+        if (err) {
+          console.error("❌ Error loading data:", err);
+          return reject(err);
+        }
 
-    const columns = result[0].columns;
-    const values = result[0].values;
+        // Convert database format to CSV format for compatibility
+        const data = rows.map((row) => ({
+          "Transaction ID": row.transaction_id,
+          Date: row.date,
+          "Customer ID": row.customer_id,
+          "Customer Name": row.customer_name,
+          "Phone Number": row.phone_number,
+          Gender: row.gender,
+          Age: row.age?.toString(),
+          "Customer Region": row.customer_region,
+          "Customer Type": row.customer_type,
+          "Product ID": row.product_id,
+          "Product Name": row.product_name,
+          Brand: row.brand,
+          "Product Category": row.product_category,
+          Tags: row.tags,
+          Quantity: row.quantity?.toString(),
+          "Price per Unit": row.price_per_unit?.toString(),
+          "Discount Percentage": row.discount_percentage?.toString(),
+          "Total Amount": row.total_amount?.toString(),
+          "Final Amount": row.final_amount?.toString(),
+          "Payment Method": row.payment_method,
+          "Order Status": row.order_status,
+          "Delivery Type": row.delivery_type,
+          "Store ID": row.store_id,
+          "Store Location": row.store_location,
+          "Salesperson ID": row.salesperson_id,
+          "Employee Name": row.employee_name,
+        }));
 
-    const data = values.map((row) => {
-      const obj = {};
-      columns.forEach((col, i) => {
-        const mapping = {
-          transaction_id: "Transaction ID",
-          date: "Date",
-          customer_id: "Customer ID",
-          customer_name: "Customer Name",
-          phone_number: "Phone Number",
-          gender: "Gender",
-          age: "Age",
-          customer_region: "Customer Region",
-          customer_type: "Customer Type",
-          product_id: "Product ID",
-          product_name: "Product Name",
-          brand: "Brand",
-          product_category: "Product Category",
-          tags: "Tags",
-          quantity: "Quantity",
-          price_per_unit: "Price per Unit",
-          discount_percentage: "Discount Percentage",
-          total_amount: "Total Amount",
-          final_amount: "Final Amount",
-          payment_method: "Payment Method",
-          order_status: "Order Status",
-          delivery_type: "Delivery Type",
-          store_id: "Store ID",
-          store_location: "Store Location",
-          salesperson_id: "Salesperson ID",
-          employee_name: "Employee Name",
-        };
-
-        const csvColName = mapping[col] || col;
-        obj[csvColName] = row[i] !== null ? row[i].toString() : "";
+        console.log(`📊 Loaded ${data.length} records from SQLite`);
+        resolve(data);
       });
-      return obj;
     });
-
-    console.log(`📊 Loaded ${data.length} records from SQLite`);
-    return data;
   } catch (error) {
     console.error("❌ Error loading from SQLite:", error);
     throw new Error("Failed to load sales data from database");
   }
 };
 
-
+/**
+ * Get filter options from database
+ */
 export const getFilterOptionsFromDB = async () => {
   try {
     const db = await getDatabase();
 
     const getDistinct = (column) => {
-      const result = db.exec(
-        `SELECT DISTINCT ${column} FROM sales WHERE ${column} IS NOT NULL ORDER BY ${column}`
-      );
-      if (result.length > 0) {
-        return result[0].values.map((row) => row[0]);
-      }
-      return [];
-    };
-
-    const customerRegions = getDistinct("customer_region");
-    const genders = getDistinct("gender");
-    const productCategories = getDistinct("product_category");
-    const paymentMethods = getDistinct("payment_method");
-    const orderStatuses = getDistinct("order_status");
-    const deliveryTypes = getDistinct("delivery_type");
-
-    const ageResult = db.exec(
-      "SELECT MIN(age) as min, MAX(age) as max FROM sales"
-    );
-    const ageRange = {
-      min: ageResult[0]?.values[0]?.[0] || 18,
-      max: ageResult[0]?.values[0]?.[1] || 100,
-    };
-
-    const tagsResult = db.exec(
-      "SELECT DISTINCT tags FROM sales WHERE tags IS NOT NULL"
-    );
-    const tagsSet = new Set();
-    if (tagsResult.length > 0) {
-      tagsResult[0].values.forEach((row) => {
-        if (row[0]) {
-          row[0].split(",").forEach((tag) => {
-            const trimmed = tag.trim();
-            if (trimmed) tagsSet.add(trimmed);
-          });
-        }
+      return new Promise((resolve, reject) => {
+        db.all(
+          `SELECT DISTINCT ${column} FROM sales WHERE ${column} IS NOT NULL ORDER BY ${column}`,
+          (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows.map((row) => row[column]));
+          }
+        );
       });
-    }
+    };
+
+    const getAgeRange = () => {
+      return new Promise((resolve, reject) => {
+        db.get(
+          "SELECT MIN(age) as min, MAX(age) as max FROM sales",
+          (err, row) => {
+            if (err) return reject(err);
+            resolve({ min: row.min || 18, max: row.max || 100 });
+          }
+        );
+      });
+    };
+
+    const getTags = () => {
+      return new Promise((resolve, reject) => {
+        db.all(
+          "SELECT DISTINCT tags FROM sales WHERE tags IS NOT NULL",
+          (err, rows) => {
+            if (err) return reject(err);
+
+            const tagsSet = new Set();
+            rows.forEach((row) => {
+              if (row.tags) {
+                row.tags.split(",").forEach((tag) => {
+                  const trimmed = tag.trim();
+                  if (trimmed) tagsSet.add(trimmed);
+                });
+              }
+            });
+
+            resolve(Array.from(tagsSet).sort());
+          }
+        );
+      });
+    };
+
+    // Get all filter options in parallel
+    const [
+      customerRegions,
+      genders,
+      productCategories,
+      paymentMethods,
+      orderStatuses,
+      deliveryTypes,
+      ageRange,
+      tags,
+    ] = await Promise.all([
+      getDistinct("customer_region"),
+      getDistinct("gender"),
+      getDistinct("product_category"),
+      getDistinct("payment_method"),
+      getDistinct("order_status"),
+      getDistinct("delivery_type"),
+      getAgeRange(),
+      getTags(),
+    ]);
 
     return {
       customerRegions,
       genders,
       productCategories,
-      tags: Array.from(tagsSet).sort(),
+      tags,
       paymentMethods,
       orderStatuses,
       deliveryTypes,
@@ -120,6 +145,9 @@ export const getFilterOptionsFromDB = async () => {
   }
 };
 
+/**
+ * Clear cache
+ */
 export const clearCache = () => {
   console.log("ℹ️ Cache clearing not needed with SQLite");
 };
