@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000/api/sales";
+  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -19,10 +19,9 @@ api.interceptors.response.use(
   }
 );
 
-// Fetch sales data
 export const fetchSalesData = async (params) => {
   try {
-    const response = await api.get("/data", { params });
+    const response = await api.get("/sales/data", { params });
     return response.data;
   } catch (error) {
     throw new Error(
@@ -31,10 +30,9 @@ export const fetchSalesData = async (params) => {
   }
 };
 
-// Fetch filter options
 export const fetchFilterOptions = async () => {
   try {
-    const response = await api.get("/filters");
+    const response = await api.get("/sales/filters");
     return response.data;
   } catch (error) {
     throw new Error(
