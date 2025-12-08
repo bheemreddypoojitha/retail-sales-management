@@ -1,180 +1,275 @@
-# Backend - Retail Sales Management System
+# Backend – Retail Sales Management System
 
-RESTful API server for retail sales data management with advanced filtering, searching, sorting, and pagination capabilities.
+A production-ready RESTful API for managing retail sales data, built using **Node.js**, **Express.js**, and **PostgreSQL (Supabase)**. Supports optimized search, multi-select filters, sorting, and pagination using clean dynamic SQL queries.
 
-## Tech Stack
+---
 
-- **Runtime:** Node.js 18+
-- **Framework:** Express.js
-- **CSV Parser:** Papaparse
-- **Architecture:** MVC with Service Layer
+## 🚀 Tech Stack
 
-## API Endpoints
+- **Node.js** + **Express.js**
+- **PostgreSQL** (Supabase)
+- **pg** (node-postgres)
+- Dynamic SQL Query Builder
+- **Render** (Backend Deployment)
 
-### GET /api/sales
+---
 
-Retrieve sales data with optional filters, search, sort, and pagination.
+## 📌 Core Features
 
-**Query Parameters:**
+### 🔍 Search
+- Full-text search using PostgreSQL `ILIKE`
+- Works on:
+  - Customer Name
+  - Phone Number
+- Case-insensitive
+- Works alongside filters, sorting, and pagination
 
-| Parameter       | Type   | Description                                                                                   |
-| --------------- | ------ | --------------------------------------------------------------------------------------------- |
-| search          | string | Search by customer name or phone number                                                       |
-| page            | number | Page number (default: 1)                                                                      |
-| limit           | number | Records per page (default: 10)                                                                |
-| sortBy          | string | Sort option (date-newest, date-oldest, quantity-high, quantity-low, customer-az, customer-za) |
-| customerRegion  | string | Comma-separated regions                                                                       |
-| gender          | string | Comma-separated genders                                                                       |
-| ageMin          | number | Minimum age                                                                                   |
-| ageMax          | number | Maximum age                                                                                   |
-| productCategory | string | Comma-separated categories                                                                    |
-| tags            | string | Comma-separated tags                                                                          |
-| paymentMethod   | string | Comma-separated payment methods                                                               |
-| orderStatus     | string | Comma-separated order statuses                                                                |
-| deliveryType    | string | Comma-separated delivery types                                                                |
-| dateFrom        | date   | Start date (YYYY-MM-DD)                                                                       |
-| dateTo          | date   | End date (YYYY-MM-DD)                                                                         |
+### 🎛️ Filters (Multi-Select & Range)
+Supports filtering by:
+- **Customer Region**
+- **Gender**
+- **Age Range**
+- **Product Category**
+- **Tags**
+- **Payment Method**
+- **Date Range** (`startDate` / `endDate`)
 
-**Response Format:**
+✔ Filters work independently  
+✔ Filters combine together  
+✔ Filters preserve search & sorting state
 
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "Transaction ID": "...",
-      "Customer Name": "..."
-      // ... all CSV fields
-    }
-  ],
-  "pagination": {
-    "currentPage": 1,
-    "pageSize": 10,
-    "totalPages": 50,
-    "totalRecords": 500,
-    "hasNextPage": true,
-    "hasPrevPage": false
-  },
-  "filters": {
-    "applied": {
-      "search": "...",
-      "sortBy": "..."
-      // ... applied filters
-    }
-  }
-}
+### ↕️ Sorting
+Available options:
+- **Date** – newest → oldest
+- **Quantity** – highest → lowest
+- **Customer Name** – A → Z
+
+Sorting always preserves active filters + search.
+
+### 📄 Pagination
+- **10 items per page**
+- Next / Previous navigation
+- Returns:
+  - `totalRecords`
+  - `totalPages`
+  - `currentPage`
+  - `hasNextPage`
+  - `hasPrevPage`
+
+---
+
+## 🔧 Environment Variables
+
+Create a `.env` file inside the backend folder:
+```env
+DATABASE_URL=your_supabase_postgres_url
+PORT=5000
 ```
 
-### GET /api/sales/filters
-
-Returns all available filter options extracted from the dataset.
-
-**Response Format:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "customerRegions": ["North", "South", "East", "West", "Central"],
-    "genders": ["Male", "Female", "Other"],
-    "productCategories": [...],
-    "tags": [...],
-    "paymentMethods": [...],
-    "orderStatuses": [...],
-    "deliveryTypes": [...],
-    "ageRange": { "min": 18, "max": 75 }
-  }
-}
+For Render deployment:
+```env
+DATABASE_URL=postgres://your-render-supabase-url
+PORT=10000
 ```
 
-## Project Structure
+---
 
-```
-backend/
-├── src/
-│   ├── controllers/        # HTTP request handlers
-│   │   └── salesController.js
-│   ├── services/          # Business logic
-│   │   └── salesService.js
-│   ├── utils/            # Helper utilities
-│   │   ├── dataLoader.js
-│   │   └── filterExtractor.js
-│   ├── routes/           # API route definitions
-│   │   └── salesRoutes.js
-│   ├── data/            # CSV data storage
-│   │   └── sales_data.csv
-│   └── index.js         # Application entry point
-├── .env                 # Environment variables
-├── package.json         # Dependencies and scripts
-└── README.md           # This file
-```
+## 🛠️ Setup & Local Development
 
-## Setup Instructions
-
-### Install Dependencies
-
+### Install dependencies
 ```bash
 npm install
 ```
 
-### Add Data File
-
-Place your CSV file at `src/data/sales_data.csv`
-
-### Configure Environment
-
-Create `.env` file:
-
-```
-PORT=5000
-NODE_ENV=development
-```
-
-### Run Development Server
-
+### Setup Database
 ```bash
-npm run dev
+npm run setup-db
 ```
 
-Server will start at `http://localhost:5000`
+### Upload CSV Data (1M records)
+```bash
+npm run upload-csv
+```
 
-### Run Production Server
-
+### Start the server
 ```bash
 npm start
 ```
 
-## Features
+Your backend will run at:
+```
+http://localhost:5000
+```
 
-- **In-Memory Caching:** CSV data cached after first load for optimal performance
-- **Case-Insensitive Search:** Searches across customer names and phone numbers
-- **Multi-Select Filters:** Supports multiple selections for categorical filters
-- **Range Filters:** Numeric ranges for age and date ranges for transactions
-- **Flexible Sorting:** Six different sorting options
-- **Efficient Pagination:** Reduces response payload and improves performance
-- **Error Handling:** Comprehensive error handling with meaningful messages
-- **CORS Enabled:** Configured for cross-origin requests
+API base:
+```
+http://localhost:5000/api
+```
 
-## Development
+---
 
-### Scripts
+## 📁 Folder Structure
+```
+backend/
+├── src/
+│   ├── index.js
+│   ├── routes/
+│   │   └── salesRoutes.js
+│   ├── utils/
+│   │   ├── db.js
+│   │   └── dataService.js
+│   └── scripts/
+│       ├── setupDatabase.js
+│       └── uploadToPostgres.js
+│
+├── data/
+│   └── sales_data.csv
+│
+├── package.json
+├── package-lock.json
+├── README.md
+├── .gitignore
+└── .env
+```
 
-- `npm start` - Run production server
-- `npm run dev` - Run development server with auto-reload
+---
 
-### Adding New Features
+## 🔗 API Endpoints
 
-1. Add business logic to `services/`
-2. Create controller methods in `controllers/`
-3. Define routes in `routes/`
-4. Update documentation
+### `GET /api/sales/data`
 
-## Deployment
+Fetches sales data with:
+- Search
+- Multi-select filtering
+- Range filtering
+- Sorting
+- Pagination
 
-Recommended platform: Render.com
+#### Query Parameters
 
-Configuration:
+| Parameter | Description |
+|-----------|-------------|
+| `search` | Name/phone search |
+| `region` | Array of regions |
+| `gender` | Array of genders |
+| `ageMin` / `ageMax` | Age range |
+| `category` | Product categories |
+| `tags` | Tags |
+| `payment` | Payment methods |
+| `startDate` / `endDate` | Date range |
+| `sort` | `date` / `quantity` / `name` |
+| `page` | Page number |
 
-- Build Command: `npm install`
-- Start Command: `npm start`
-- Environment Variables: Set `NODE_ENV=production`
+#### Example Request
+```bash
+GET /api/sales/data?search=john&region=North&sort=date&page=1
+```
+
+#### Example Response
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "Transaction ID": "TXN001",
+      "Customer Name": "John Doe",
+      "Date": "2024-01-15",
+      ...
+    }
+  ],
+  "count": 10
+}
+```
+
+---
+
+### `GET /api/sales/filters`
+
+Returns all available filter options.
+
+#### Example Response
+```json
+{
+  "status": "success",
+  "filters": {
+    "customerRegions": ["North", "South", "East", "West"],
+    "genders": ["Male", "Female"],
+    "productCategories": ["Electronics", "Clothing"],
+    "tags": ["Sale", "New", "Featured"],
+    "paymentMethods": ["Credit Card", "Cash"],
+    "orderStatuses": ["Completed", "Pending"],
+    "deliveryTypes": ["Home Delivery", "Store Pickup"],
+    "ageRange": {
+      "min": 18,
+      "max": 80
+    }
+  }
+}
+```
+
+---
+
+### `GET /health`
+
+Health check endpoint.
+
+#### Example Response
+```json
+{
+  "status": "success",
+  "message": "Retail Sales API is running",
+  "timestamp": "2024-12-08T10:30:00.000Z",
+  "database": "connected"
+}
+```
+
+---
+
+## 🧠 Dynamic SQL Query Logic
+
+Example SQL generated by the backend:
+```sql
+SELECT * FROM sales
+WHERE
+  customer_name ILIKE '%john%'
+  AND customer_region = ANY($1)
+  AND gender = ANY($2)
+  AND age BETWEEN $3 AND $4
+ORDER BY date DESC
+LIMIT 10
+OFFSET 0;
+```
+
+✔ Fully dynamic  
+✔ SQL injection–safe  
+✔ Clean structure  
+✔ Easy to add new filters
+
+---
+## Environment Variables
+
+Create a .env file inside /backend:
+
+DATABASE_URL=your_supabase_postgres_url
+PORT=5000
+
+
+## Render Deployment:
+
+DATABASE_URL=postgres://your-render-supabase-url
+PORT=10000
+
+## Setup & Local Development
+Install dependencies
+npm install
+
+Start Backend Server
+npm start
+
+Server runs at:
+
+http://localhost:5000
+
+API base URL:
+
+http://localhost:5000/api
