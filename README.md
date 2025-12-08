@@ -1,41 +1,60 @@
 # Retail Sales Management System
 
-A comprehensive full-stack web application for retail sales data management with advanced filtering, search, sorting, and pagination capabilities built with modern technologies and production-ready architecture.
+## 1. Overview
+A full-stack retail transaction management system that enables users to search, filter, sort, and paginate customer transactions efficiently. The application provides a clean UI, fast API responses, and seamless state management across all operations. Built with a scalable backend and a responsive frontend optimized for real-world use.
 
-## Overview
+## 2. Tech Stack
+**Frontend:** React, Vite, Axios  
+**Backend:** Node.js, Express.js  
+**Database:** PostgreSQL (Supabase)  
+**Deployment:** Render (Backend), Vercel (Frontend)
 
-This system provides an intuitive interface for analyzing retail sales transactions with real-time data processing. It handles large datasets efficiently through optimized backend services and delivers a responsive user experience with React-based frontend, supporting complex multi-criteria filtering and seamless pagination while maintaining state consistency across all operations.
+## 3. Search Implementation Summary
+- Full-text search implemented on **customer name** and **phone number**.  
+- Case-insensitive matching using SQL `ILIKE` queries.  
+- Search works in combination with filters, sorting, and pagination.  
+- API supports dynamic search parameters to ensure high performance.
 
-## Tech Stack
+## 4. Filter Implementation Summary
+- Backend supports multi-select and range-based filtering for:
+  - Customer Region  
+  - Gender  
+  - Age Range  
+  - Product Category  
+  - Tags  
+  - Payment Method  
+  - Date Range  
+- All filters are optional and combinable.  
+- Query builder dynamically constructs WHERE clauses without duplication.  
+- Frontend state ensures filters persist across pages and while sorting.
+
+## 5. Sorting Implementation Summary
+- Sorting supported on:
+  - Date (Newest First)  
+  - Quantity  
+  - Customer Name (A–Z)  
+- Sorting is preserved together with search, filters, and pagination.  
+- Implemented with dynamic `ORDER BY` conditions in PostgreSQL.
+
+## 6. Pagination Implementation Summary
+- Fixed page size: **10 items per page**  
+- Supports next/previous navigation  
+- Pagination retains:
+  - Active search query  
+  - Selected filters  
+  - Sorting option  
+- Backend API returns:
+  - Items for current page  
+  - Total count  
+  - Total pages  
+
+## 7. Setup Instructions
 
 ### Backend
+```bash
+cd backend
+npm install
 
-- Node.js (v18+)
-- Express.js
-- Papaparse (CSV Processing)
-
-### Frontend
-
-- React 18
-- Vite
-- Tailwind CSS
-- Axios
-
-## Search Implementation Summary
-
-Implemented case-insensitive full-text search functionality that queries across customer names and phone numbers. The search mechanism operates on the server-side, processing data before pagination to ensure accurate result counts. Search terms are trimmed and converted to lowercase for consistent matching, and the implementation maintains complete compatibility with all active filters and sorting options, ensuring users can progressively narrow results through combined search and filter operations.
-
-## Filter Implementation Summary
-
-Comprehensive multi-select and range-based filtering system supporting nine filter categories: Customer Region (multi-select), Gender (multi-select), Age Range (numeric range with min/max), Product Category (multi-select), Tags (multi-select with comma-separated parsing), Payment Method (multi-select), Order Status (multi-select), Delivery Type (multi-select), and Date Range (from-to date picker). All filters operate independently and in combination, with server-side processing ensuring accurate results. Filter state persists across pagination, sorting, and search operations through query parameter synchronization.
-
-## Sorting Implementation Summary
-
-Six comprehensive sorting options implemented: Date (Newest First), Date (Oldest First), Quantity (High to Low), Quantity (Low to High), Customer Name (A-Z), and Customer Name (Z-A). Sorting executes after filtering but before pagination to maintain accurate result ordering. The implementation uses JavaScript's native sort with locale-aware string comparison for alphabetical sorting and numeric comparison for date/quantity sorting. Sort state is maintained across all user interactions through controlled component state and URL synchronization.
-
-## Pagination Implementation Summary
-
-Fixed 10-items-per-page pagination system with intelligent navigation controls. Implementation calculates total pages based on filtered result count and provides Previous/Next buttons with proper disabled states. Page numbers display with ellipsis for large datasets, showing context around current page. All filter, search, and sort states persist across page changes through query parameter management. Smooth scroll-to-top behavior enhances user experience during navigation, and pagination metadata (current page, total pages, total records) is displayed for user awareness.
 
 ## Setup Instructions
 
@@ -59,14 +78,10 @@ cd backend
 npm install
 ```
 
-3. Add dataset:
-
-- Download CSV from provided Google Drive link
-- Place file as `backend/src/data/sales_data.csv`
-
-4. Create environment file `.env`:
+3. Create environment file `.env`:
 
 ```
+DATABASE_URL=your_supabase_postgres_url
 PORT=5000
 NODE_ENV=development
 ```
@@ -130,12 +145,3 @@ Access application at `http://localhost:3000`
 - Root Directory: `frontend`
 - Environment Variable: `VITE_API_URL=<backend-url>/api`
 
-## Live Demo
-
-- **Application:** https://your-app.vercel.app
-- **API Endpoint:** https://your-api.onrender.com
-- **Repository:** https://github.com/your-username/retail-sales-management
-
-## Documentation
-
-Complete system architecture and technical details available at `/docs/architecture.md`
